@@ -1,5 +1,4 @@
-
-"""External API clients: OpenRouteService and Open-Meteo."""
+"""External API clients: OpenRouteService (HeiGIT) and Open-Meteo."""
 
 from __future__ import annotations
 
@@ -19,6 +18,11 @@ log = logging.getLogger(__name__)
 WEATHER_CHUNK = 50
 MAX_ROUTES = 3
 
+# api.openrouteservice.org is deprecated (it only gets 10% of the quota).
+# Use the new HeiGIT host, which gives the full quota.
+ORS_DIRECTIONS_URL = "https://api.heigit.org/openrouteservice/v2/directions"
+ORS_GEOCODE_URL = "https://api.heigit.org/pelias/v1/search"
+
 
 class ProviderError(Exception):
     def __init__(self, message: str, status: int = 502):
@@ -26,6 +30,10 @@ class ProviderError(Exception):
         self.message = message
         self.status = status
 
+
+# ------------------------------------------------------------
+# OpenRouteService helpers
+# ------------------------------------------------------------
 
 def _ors_headers():
     api_key = settings.ORS_API_KEY
@@ -41,6 +49,7 @@ def _ors_headers():
         "Content-Type": "application/json",
     }
 
+
 def _request(method, url, *, what, **kwargs):
     for attempt in range(3):
         try:
@@ -53,10 +62,7 @@ def _request(method, url, *, what, **kwargs):
         if resp.status_code == 429:
             # A daily quota will not recover in a few seconds, so fail immediately.
             if "daily" in resp.text.lower():
-                raise ProviderError(
-                    f"{what} daily request limit reached. It resets at about 5:30 AM IST; please try again later.",
-                    503,
-                )
+                raise ProviderError(f"{what} daily request limit reached. Please try again later.", 503)
             if attempt < 2:
                 time.sleep(2 * (attempt + 1))  # short per-minute limit: wait 2s, then 4s
                 continue
@@ -65,8 +71,12 @@ def _request(method, url, *, what, **kwargs):
     if resp.status_code == 429:
         raise ProviderError(f"{what} rate limit reached. Please wait a moment and retry.", 503)
     if resp.status_code in (401, 403):
+        # ORS answers 403 {"error": "Quota exceeded"} when the key's quota is used up.
+        if "quota" in resp.text.lower():
+            raise ProviderError(f"{what} quota exceeded for this API key. Try again later or use another key.", 503)
         raise ProviderError(f"{what} rejected the request (check the API key).", 502)
     return resp
+
 
 def _json(resp, what):
     try:
@@ -75,10 +85,12 @@ def _json(resp, what):
         raise ProviderError(
             f"{what} returned an invalid response.",
             502,
-        ) 
+        )
 
 
-
+# ------------------------------------------------------------
+# Geocoding
+# ------------------------------------------------------------
 
 def geocode(query: str):
     query = query.strip()
@@ -91,7 +103,7 @@ def geocode(query: str):
 
     resp = _request(
         "GET",
-        f"{settings.ORS_BASE_URL}/geocode/search",
+        ORS_GEOCODE_URL,
         what="Geocoding service",
         headers=_ors_headers(),
         params={
@@ -135,6 +147,10 @@ def geocode(query: str):
     return results
 
 
+# ------------------------------------------------------------
+# Routing
+# ------------------------------------------------------------
+
 def _directions(coordinates, **extra):
     """Coordinates are a list of (latitude, longitude) pairs."""
 
@@ -150,10 +166,7 @@ def _directions(coordinates, **extra):
 
     resp = _request(
         "POST",
-        (
-            f"{settings.ORS_BASE_URL}/v2/directions/"
-            f"{settings.ORS_PROFILE}/geojson"
-        ),
+        f"{ORS_DIRECTIONS_URL}/{settings.ORS_PROFILE}/geojson",
         what="Routing service",
         headers=_ors_headers(),
         json=body,
@@ -338,6 +351,9 @@ def fetch_routes(origin, destination):
     return found[:MAX_ROUTES]
 
 
+# ------------------------------------------------------------
+# Open-Meteo weather
+# ------------------------------------------------------------
 
 def _fetch_weather_chunk(points, start: datetime, end: datetime):
     params = {
@@ -409,8 +425,8 @@ def _fetch_weather_chunk(points, start: datetime, end: datetime):
             )
 
         series.append({
-            time: (w, r, s)
-            for time, w, r, s in zip(times, wind, rain, snow)
+            ts: (w, r, s)
+            for ts, w, r, s in zip(times, wind, rain, snow)
         })
 
     return series
