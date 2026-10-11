@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
@@ -46,59 +47,22 @@ def _ors_headers():
 
 
 def _request(method, url, *, what, **kwargs):
-    """Make an external request without logging secrets."""
-
-    try:
-        resp = requests.request(
-            method,
-            url,
-            timeout=settings.HTTP_TIMEOUT_SECONDS,
-            **kwargs,
-        )
-
-    except requests.Timeout:
-        log.warning("%s request timed out.", what)
-        raise ProviderError(
-            f"{what} timed out. Please try again.",
-            504,
-        )
-
-    except requests.RequestException as exc:
-        log.warning(
-            "%s request failed: %s",
-            what,
-            type(exc).__name__,
-        )
-        raise ProviderError(
-            f"{what} is unreachable. Please try again.",
-            502,
-        )
-
-    if resp.status_code != 200:
-        # Never log request headers or the API key.
-        log.warning(
-            "%s returned HTTP %s: %s",
-            what,
-            resp.status_code,
-            resp.text[:500],
-        )
-
+    for attempt in range(3):
+        try:
+            resp = requests.request(method, url, timeout=settings.HTTP_TIMEOUT_SECONDS, **kwargs)
+        except requests.Timeout:
+            raise ProviderError(f"{what} timed out. Please try again.", 504)
+        except requests.RequestException:
+            raise ProviderError(f"{what} is unreachable. Please try again.", 502)
+        if resp.status_code == 429 and attempt < 2:
+            time.sleep(2 * (attempt + 1))  # wait 2s, then 4s, then give up
+            continue
+        break
     if resp.status_code == 429:
-        raise ProviderError(
-            f"{what} rate limit reached. Please wait and retry.",
-            503,
-        )
-
+        raise ProviderError(f"{what} rate limit reached. Please wait a moment and retry.", 503)
     if resp.status_code in (401, 403):
-        raise ProviderError(
-            f"{what} rejected the request (HTTP "
-            f"{resp.status_code}); check API credentials "
-            "and permissions.",
-            502,
-        )
-
+        raise ProviderError(f"{what} rejected the request (check the API key).", 502)
     return resp
-
 
 def _json(resp, what):
     try:
