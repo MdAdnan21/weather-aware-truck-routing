@@ -18,8 +18,7 @@ log = logging.getLogger(__name__)
 WEATHER_CHUNK = 50
 MAX_ROUTES = 3
 
-# api.openrouteservice.org is deprecated (it only gets 10% of the quota).
-# Use the new HeiGIT host, which gives the full quota.
+
 ORS_DIRECTIONS_URL = "https://api.heigit.org/openrouteservice/v2/directions"
 ORS_GEOCODE_URL = "https://api.heigit.org/pelias/v1/search"
 
@@ -31,9 +30,6 @@ class ProviderError(Exception):
         self.status = status
 
 
-# ------------------------------------------------------------
-# OpenRouteService helpers
-# ------------------------------------------------------------
 
 def _ors_headers():
     api_key = settings.ORS_API_KEY
@@ -60,18 +56,16 @@ def _request(method, url, *, what, **kwargs):
             raise ProviderError(f"{what} is unreachable. Please try again.", 502)
 
         if resp.status_code == 429:
-            # A daily quota will not recover in a few seconds, so fail immediately.
             if "daily" in resp.text.lower():
                 raise ProviderError(f"{what} daily request limit reached. Please try again later.", 503)
             if attempt < 2:
-                time.sleep(2 * (attempt + 1))  # short per-minute limit: wait 2s, then 4s
+                time.sleep(2 * (attempt + 1))  
                 continue
         break
 
     if resp.status_code == 429:
         raise ProviderError(f"{what} rate limit reached. Please wait a moment and retry.", 503)
     if resp.status_code in (401, 403):
-        # ORS answers 403 {"error": "Quota exceeded"} when the key's quota is used up.
         if "quota" in resp.text.lower():
             raise ProviderError(f"{what} quota exceeded for this API key. Try again later or use another key.", 503)
         raise ProviderError(f"{what} rejected the request (check the API key).", 502)
@@ -86,11 +80,6 @@ def _json(resp, what):
             f"{what} returned an invalid response.",
             502,
         )
-
-
-# ------------------------------------------------------------
-# Geocoding
-# ------------------------------------------------------------
 
 def geocode(query: str):
     query = query.strip()
@@ -146,10 +135,6 @@ def geocode(query: str):
 
     return results
 
-
-# ------------------------------------------------------------
-# Routing
-# ------------------------------------------------------------
 
 def _directions(coordinates, **extra):
     """Coordinates are a list of (latitude, longitude) pairs."""
@@ -351,9 +336,6 @@ def fetch_routes(origin, destination):
     return found[:MAX_ROUTES]
 
 
-# ------------------------------------------------------------
-# Open-Meteo weather
-# ------------------------------------------------------------
 
 def _fetch_weather_chunk(points, start: datetime, end: datetime):
     params = {
@@ -432,24 +414,67 @@ def _fetch_weather_chunk(points, start: datetime, end: datetime):
     return series
 
 
-def fetch_weather(points, start: datetime, end: datetime):
-    """Return one hourly weather dictionary per point."""
+# Weather cache: the same checkpoint area + dates is reused for 30 minutes, so repeat
+# analyses (demos, route comparisons) do not spend Open-Meteo quota again.
+WEATHER_CACHE_TTL_S = 1800
+_WEATHER_CACHE: dict = {}
+_WEATHER_OK_UNTIL = 0.0
 
-    chunks = [
-        points[index:index + WEATHER_CHUNK]
-        for index in range(0, len(points), WEATHER_CHUNK)
-    ]
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(
-            pool.map(
-                lambda chunk: _fetch_weather_chunk(chunk, start, end),
-                chunks,
-            )
+def check_weather_available():
+    """Cheap one-location probe so a quota problem fails in ~1-2 s instead of after all routing calls.
+
+    Only a rate-limit/quota error (HTTP 503 from _request) is raised. Any other problem is
+    left for the real weather request to report.
+    """
+    global _WEATHER_OK_UNTIL
+    if time.time() < _WEATHER_OK_UNTIL:
+        return
+    try:
+        _request(
+            "GET",
+            settings.OPEN_METEO_URL,
+            what="Weather service",
+            params={"latitude": 40.0, "longitude": -100.0, "hourly": "wind_speed_10m", "forecast_days": 1},
         )
+    except ProviderError as exc:
+        if exc.status == 503:
+            raise
+        log.info("Weather preflight inconclusive (%s); continuing.", exc.message)
+        return
+    _WEATHER_OK_UNTIL = time.time() + 300
 
-    return [
-        series
-        for chunk_result in results
-        for series in chunk_result
-    ]
+
+def fetch_weather(points, start: datetime, end: datetime):
+    """Return one hourly weather dictionary per point (cached for WEATHER_CACHE_TTL_S)."""
+
+    now = time.time()
+    dates = (start.date().isoformat(), end.date().isoformat())
+    results = [None] * len(points)
+    missing = []
+
+    for i, (lat, lng) in enumerate(points):
+        hit = _WEATHER_CACHE.get((round(lat, 2), round(lng, 2)) + dates)
+        if hit and hit[0] > now:
+            results[i] = hit[1]
+        else:
+            missing.append(i)
+
+    if missing:
+        todo = [points[i] for i in missing]
+        chunks = [todo[k:k + WEATHER_CHUNK] for k in range(0, len(todo), WEATHER_CHUNK)]
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            fetched = [
+                series
+                for chunk_result in pool.map(lambda c: _fetch_weather_chunk(c, start, end), chunks)
+                for series in chunk_result
+            ]
+
+        if len(_WEATHER_CACHE) > 5000:  
+            _WEATHER_CACHE.clear()
+        for i, series in zip(missing, fetched):
+            results[i] = series
+            lat, lng = points[i]
+            _WEATHER_CACHE[(round(lat, 2), round(lng, 2)) + dates] = (now + WEATHER_CACHE_TTL_S, series)
+
+    return results

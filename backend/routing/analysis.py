@@ -83,6 +83,8 @@ def recommend(routes):
 def analyze(origin, destination, departure: datetime, load_lbs: float, interval_miles: int,
             *, route_fetcher=None, weather_fetcher=None):
     """origin/destination: dicts with lat/lng/label. departure: tz-aware UTC datetime."""
+    if weather_fetcher is None:
+        providers.check_weather_available()  # fail fast if the weather quota is exhausted
     route_fetcher = route_fetcher or providers.fetch_routes
     weather_fetcher = weather_fetcher or providers.fetch_weather
 
