@@ -41,7 +41,6 @@ def _ors_headers():
         "Content-Type": "application/json",
     }
 
-
 def _request(method, url, *, what, **kwargs):
     for attempt in range(3):
         try:
@@ -50,10 +49,19 @@ def _request(method, url, *, what, **kwargs):
             raise ProviderError(f"{what} timed out. Please try again.", 504)
         except requests.RequestException:
             raise ProviderError(f"{what} is unreachable. Please try again.", 502)
-        if resp.status_code == 429 and attempt < 2:
-            time.sleep(2 * (attempt + 1))  # wait 2s, then 4s, then give up
-            continue
+
+        if resp.status_code == 429:
+            # A daily quota will not recover in a few seconds, so fail immediately.
+            if "daily" in resp.text.lower():
+                raise ProviderError(
+                    f"{what} daily request limit reached. It resets at about 5:30 AM IST; please try again later.",
+                    503,
+                )
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))  # short per-minute limit: wait 2s, then 4s
+                continue
         break
+
     if resp.status_code == 429:
         raise ProviderError(f"{what} rate limit reached. Please wait a moment and retry.", 503)
     if resp.status_code in (401, 403):
