@@ -61,11 +61,11 @@ export default function App() {
     <div className="flex h-full flex-col lg:flex-row">
       {toast && <Toast onDone={dismissToast}>{toast}</Toast>}
       <aside className="flex w-full shrink-0 flex-col border-b border-ink-200 bg-white lg:h-full lg:w-[420px] lg:border-b-0 lg:border-r" aria-busy={loading}>
-        <header className="flex items-center gap-3 border-b border-ink-100 px-5 py-4">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white"><Icon name="route" className="h-5 w-5" /></span>
+        <header className="flex items-center gap-3 bg-brand-700 px-5 py-4 text-white">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/15 text-white"><Icon name="route" className="h-5 w-5" /></span>
           <div className="min-w-0">
-            <h1 className="text-[15px] font-bold leading-tight tracking-tight text-ink-900">Weather-Aware Truck Routing</h1>
-            <p className="text-xs text-ink-500">Route options ranked by weather risk, load and time</p>
+            <h1 className="text-[15px] font-bold leading-tight tracking-tight text-white">Weather-Aware Truck Routing</h1>
+            <p className="text-xs text-white/70">Route options ranked by weather risk, load and time</p>
           </div>
         </header>
 
@@ -121,7 +121,7 @@ export default function App() {
                     <Icon name="chevron" className={`h-4 w-4 transition-transform duration-200 ${showTable ? 'rotate-180' : ''}`} />
                     {showTable ? 'Hide' : 'Show'} checkpoint details ({selected.checkpoints?.length ?? 0})
                   </button>
-                  <div id="cp-details" className="collapse" data-open={showTable}>
+                  <div id="cp-details" className="expander" data-open={showTable}>
                     <div className="pt-2"><CheckpointTable route={selected} mode={mode} /></div>
                   </div>
                 </div>
@@ -135,6 +135,8 @@ export default function App() {
         <MapBoundary>
           <MapView result={result} selectedId={selectedId} mode={deferredMode} onSelect={setSelectedId} />
         </MapBoundary>
+        {result && <div className="absolute right-3 top-3 z-[500] max-w-[15rem] animate-fade-in rounded-card border border-ink-200 bg-white/95 p-2.5 shadow-panel"><Legend /></div>}
+        {result?.weather_source === 'demo' && <div role="status" className="absolute left-3 top-3 z-[500] rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 shadow-panel">Simulated demo weather — not live data</div>}
         {loading && (
           <div className="pointer-events-none absolute left-1/2 top-3 z-[500] w-64 -translate-x-1/2 animate-pop-in overflow-hidden rounded-full border border-ink-200 bg-white/95 shadow-float" role="status">
             <div className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-ink-700"><Spinner /> Analysing routes…</div>

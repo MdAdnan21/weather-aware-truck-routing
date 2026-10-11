@@ -11,6 +11,7 @@ export interface AnalyzeRequest {
   departure: string // ISO 8601 UTC
   load_lbs: number
   interval_miles: 10 | 25 | 50
+  demo_weather?: boolean // simulated fixture, never live data
 }
 
 export interface Weather {
@@ -75,4 +76,5 @@ export interface AnalyzeResponse {
   destination: Place
   routes: Route[]
   recommendation: { route_id: string; reason: string }
+  weather_source?: 'live' | 'demo'
 }

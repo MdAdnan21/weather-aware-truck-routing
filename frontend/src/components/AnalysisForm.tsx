@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { toLocalInputValue } from '../format'
 import type { AnalyzeRequest, Place } from '../types'
+import DepartureField from './DepartureField'
 import LocationInput from './LocationInput'
 import { Spinner } from './ui'
 
@@ -13,6 +14,7 @@ export interface FormValues {
   departure: string // datetime-local value
   load: string
   interval: 10 | 25 | 50
+  demo?: boolean
 }
 
 export function validate(v: FormValues, now = new Date()): Record<string, string> {
@@ -40,6 +42,7 @@ export function toRequest(v: FormValues): AnalyzeRequest {
     departure: new Date(v.departure).toISOString(),
     load_lbs: Number(v.load),
     interval_miles: v.interval,
+    ...(v.demo ? { demo_weather: true } : {}),
   }
 }
 
@@ -76,11 +79,7 @@ export default function AnalysisForm({ loading, onSubmit, serverErrors }: Props)
       <LocationInput label="Origin" value={values.origin} onChange={(p) => set('origin', p)} error={errors.origin} />
       <LocationInput label="Destination" value={values.destination} onChange={(p) => set('destination', p)} error={errors.destination} />
       <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2 sm:col-span-1">
-          <label htmlFor="dep" className="label">Departure</label>
-          <input id="dep" type="datetime-local" value={values.departure} onChange={(e) => set('departure', e.target.value)} aria-invalid={!!errors.departure} aria-describedby={errors.departure ? 'dep-err' : undefined} className={field(errors.departure)} />
-          {errors.departure && <p id="dep-err" className="mt-1 animate-fade-in text-xs text-red-600">{errors.departure}</p>}
-        </div>
+        <div className="col-span-2"><DepartureField value={values.departure} onChange={(v) => set('departure', v)} error={errors.departure} /></div>
         <div className="col-span-2 sm:col-span-1">
           <label htmlFor="load" className="label">Load weight (lb)</label>
           <input id="load" type="number" inputMode="numeric" min={0} max={MAX_LOAD_LBS} step={500} value={values.load} onChange={(e) => set('load', e.target.value)} aria-invalid={!!errors.load} aria-describedby={errors.load ? 'load-err' : undefined} className={field(errors.load)} />
@@ -95,6 +94,10 @@ export default function AnalysisForm({ loading, onSubmit, serverErrors }: Props)
           <option value={50}>50 miles (fastest)</option>
         </select>
       </div>
+      <label className="flex cursor-pointer items-start gap-2 text-xs text-ink-500">
+        <input type="checkbox" checked={!!values.demo} onChange={(e) => set('demo', e.target.checked)} className="mt-0.5 h-3.5 w-3.5 accent-brand-600" />
+        <span><b className="font-semibold text-ink-700">Demo weather (simulated)</b> — mixed Low→No Travel conditions for walkthroughs. Not live data.</span>
+      </label>
       <div className="flex gap-2 pt-1">
         <button type="submit" disabled={loading} className="btn btn-primary flex-1">
           {loading ? <><Spinner /> Analysing routes…</> : 'Find safest route'}
