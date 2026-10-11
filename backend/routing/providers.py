@@ -27,10 +27,6 @@ class ProviderError(Exception):
         self.status = status
 
 
-# ------------------------------------------------------------
-# OpenRouteService helpers
-# ------------------------------------------------------------
-
 def _ors_headers():
     api_key = settings.ORS_API_KEY
 
@@ -71,12 +67,10 @@ def _json(resp, what):
         raise ProviderError(
             f"{what} returned an invalid response.",
             502,
-        )
+        ) 
 
 
-# ------------------------------------------------------------
-# Geocoding
-# ------------------------------------------------------------
+
 
 def geocode(query: str):
     query = query.strip()
@@ -132,10 +126,6 @@ def geocode(query: str):
 
     return results
 
-
-# ------------------------------------------------------------
-# Routing
-# ------------------------------------------------------------
 
 def _directions(coordinates, **extra):
     """Coordinates are a list of (latitude, longitude) pairs."""
@@ -340,9 +330,6 @@ def fetch_routes(origin, destination):
     return found[:MAX_ROUTES]
 
 
-# ------------------------------------------------------------
-# Open-Meteo weather
-# ------------------------------------------------------------
 
 def _fetch_weather_chunk(points, start: datetime, end: datetime):
     params = {
